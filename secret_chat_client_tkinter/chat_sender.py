@@ -1,17 +1,15 @@
-import asyncio
-import sys
-import argparse
 import json
-import os
-from dotenv import load_dotenv
 
-from services import log_to_file
-from services import install_logs_parameters
+from services import broadcast_logger
 from services import sanitize_message
 from services import set_and_check_connection
 
 
-class AutorisationError(TypeError):
+class ConnectionError(Exception):
+    pass
+
+
+class InvalidTokenError(Exception):
     pass
 
 
@@ -59,7 +57,7 @@ async def authorise(host, port, token):
         if not authorization_success_msg:
             return None
         nickname = authorization_success_msg['nickname']
-        await log_to_file(f'AUTORIZED AS "{nickname}"')
+        broadcast_logger.info(f'AUTORIZED AS "{nickname}"')
         return reader, writer, nickname
     except json.decoder.JSONDecodeError:
         return None
@@ -73,13 +71,10 @@ async def submit_message(host, port, msg, token):
         writer.write(str.encode(f'{msg}\n'))
         writer.write(str.encode(f'{end_of_msg}\n'))
         await writer.drain()
-        await log_to_file(f'MESSAGE SENDED "{msg}"')
+        if msg:
+            broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
     finally:
         writer.close()
-
-
-
-
 
 
 # def main():

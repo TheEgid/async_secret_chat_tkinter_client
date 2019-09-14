@@ -8,53 +8,58 @@ import logging
 import sys
 import os
 import argparse
+import aionursery
+import contextlib
+
 
 from logging.handlers import RotatingFileHandler
 
-
+watchdog_loggrer = logging.getLogger('watchdog')
 broadcast_logger = logging.getLogger('broadcast')
 
 
 def install_logs_parameters(log_path, logs=False):
     log_formatter = logging.Formatter("[{asctime}] {message}",
                                       "%d-%m-%Y %H:%M:%S", "{")
-    stream_handler = logging.StreamHandler(stream=sys.stdout)
-    stream_handler.setFormatter(log_formatter)
     broadcast_logger.setLevel(logging.INFO)
-    broadcast_logger.addHandler(stream_handler)
+    watchdog_loggrer.setLevel(logging.INFO)
 
     if logs:
         os.makedirs(log_path, exist_ok=True)
-        log_file = os.path.join(log_path, 'chat_history.txt')
-        file_handler = RotatingFileHandler(log_file,
+        broadcast_log_file = os.path.join(log_path, 'broadcast_logs.txt')
+        broadcast_file_handler = RotatingFileHandler(broadcast_log_file,
                                            maxBytes=100000,
                                            backupCount=5)
-        file_handler.setFormatter(log_formatter)
-        broadcast_logger.addHandler(file_handler)
+        watchdog_log_file = os.path.join(log_path, 'watchdog_logs.txt')
+        watchdog_file_handler = RotatingFileHandler(watchdog_log_file,
+                                           maxBytes=100000,
+                                           backupCount=5)
+
+        broadcast_file_handler.setFormatter(log_formatter)
+        broadcast_logger.addHandler(broadcast_file_handler)
+        watchdog_file_handler.setFormatter(log_formatter)
+        watchdog_loggrer.addHandler(watchdog_file_handler)
 
 
-async def log_to_file(data, filepath='log.txt'):
-    tz = pytz.timezone('Europe/Moscow')
-    now = datetime.datetime.now(tz).strftime("%d-%m-%Y %H:%M:%S")
-    log_info = f'[{now}] {data}\n'
-    async with aiofiles.open(filepath, 'a', encoding='utf8') as logfile:
-        await logfile.write(log_info)
+async def log_to_file(data, log_path='chat_logs'):
+    log_file = os.path.join(log_path, 'history.txt')
+    log_info = f'{data}\n'
+    async with aiofiles.open(log_file, 'a', encoding='utf8') as f:
+        await f.write(log_info)
 
 
-
-async def set_and_check_connection(host, port):
+async def set_and_check_connection(host, port, pause_duration=5):
     counter = 0
-    pause_duration = 5
     while True:
         try:
             counter += 1
             connection = await asyncio.open_connection(host=host, port=port)
             if connection:
-                await log_to_file('CONNECTION SUCCESSFUL')
+                broadcast_logger.info('CONNECTION SUCCESSFUL')
                 return connection
         except (socket.gaierror, ConnectionResetError, ConnectionError,
                 ConnectionRefusedError, TimeoutError):
-            await log_to_file(f'CONNECTION ERROR! '
+            broadcast_logger.info(f'CONNECTION ERROR! '
                               f'TRY CONNECT {counter} '
                               f'of {pause_duration}')
             time.sleep(pause_duration)
@@ -66,6 +71,17 @@ def sanitize_message(message):
     message = message.strip()
     message = message.replace('\n', ' ')
     return message
+
+
+@contextlib.asynccontextmanager
+async def create_handy_nursery():
+    try:
+        async with aionursery.Nursery() as nursery:
+            yield nursery
+    except aionursery.MultiError as e:
+        if len(e.exceptions) == 1:
+            raise e.exceptions[0]
+        raise
 
 
 def get_args_parser():
