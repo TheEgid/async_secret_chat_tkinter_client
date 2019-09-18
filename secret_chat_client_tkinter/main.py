@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from tkinter import messagebox
 import gui
 
-from services import log_to_file
+from services import log_to_file, load_log_from_file
 from services import install_logs_parameters
 from services import set_and_check_connection
 from gui import TkAppClosed
@@ -75,8 +75,8 @@ async def broadcast_chat(host, port):
             data = await reader.read(1024)
             msg = data.decode().rstrip()
             if msg:
-                _queues["history_queue"].put_nowait(msg)
                 _queues["messages_queue"].put_nowait(msg)
+                _queues["history_queue"].put_nowait(msg)
                 _queues["watchdog_queue"].put_nowait("Connection is alive. "
                                                      "Source: "
                                                      "New message in chat")
@@ -93,9 +93,11 @@ async def start_chat_process(host, port_listener, port_sender, token):
         raise InvalidTokenError
     _, _, nickname = authorisation_data
     event = gui.NicknameReceived(nickname)
+    for _history in await load_log_from_file():
+        _queues["messages_queue"].put_nowait(_history.strip())
     _queues["status_updates_queue"].put_nowait(event)
-    _queues["watchdog_queue"].put_nowait(f"Connection is alive. "
-                                         f"Source: Authorisation as {nickname}")
+    _queues["watchdog_queue"].put_nowait(f"Connection is alive. Source: "
+                                         f"Authorisation as {nickname}")
     await broadcast_chat(host, port_listener)
 
 
