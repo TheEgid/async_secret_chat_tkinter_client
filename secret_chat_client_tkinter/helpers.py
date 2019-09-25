@@ -1,16 +1,42 @@
 import json
+import asyncio
+import aionursery
+import contextlib
+import time
+import socket
 
-from services import broadcast_logger
 from services import sanitize_message
-from services import set_and_check_connection
+from log_services import broadcast_logger
 
 
-class ConnectionError(Exception):
-    pass
+async def set_and_check_connection(host, port, pause_duration=5):
+    counter = 0
+    while True:
+        try:
+            counter += 1
+            connection = await asyncio.open_connection(host=host, port=port)
+            if connection:
+                broadcast_logger.info('CONNECTION SUCCESSFUL')
+                return connection
+        except (socket.gaierror, ConnectionResetError, ConnectionError,
+                ConnectionRefusedError, TimeoutError):
+            broadcast_logger.info(f'CONNECTION ERROR! '
+                              f'TRY CONNECT {counter} '
+                              f'of {pause_duration}')
+            time.sleep(pause_duration)
+        if counter >= pause_duration:
+            break
 
 
-class InvalidTokenError(Exception):
-    pass
+@contextlib.asynccontextmanager
+async def create_handy_nursery():
+    try:
+        async with aionursery.Nursery() as nursery:
+            yield nursery
+    except aionursery.MultiError as e:
+        if len(e.exceptions) == 1:
+            raise e.exceptions[0]
+        raise
 
 
 def get_account_hash_and_nickname(registration_data):
@@ -75,6 +101,7 @@ async def submit_message(host, port, msg, token):
             broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
     finally:
         writer.close()
+
 
 
 # def main():
