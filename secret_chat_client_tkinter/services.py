@@ -1,5 +1,6 @@
 import os
 import argparse
+import json
 from tkinter import *
 
 class ConnectionError(Exception):
@@ -21,7 +22,6 @@ class AutorizationWindow:
         self.b.pack()
         self.l.pack()
 
-
     def get_val(self):
 
         self.b.bind()
@@ -41,13 +41,18 @@ class AutorizationWindow:
     #     s.reverse()
     #     self.l['text'] = ' '.join(s)
 
-
+    
+def get_account_hash_and_nickname(registration_data):
+    try:
+        reply_json = json.loads(registration_data)
+        return reply_json['account_hash'], reply_json['nickname']
+    except json.decoder.JSONDecodeError:
+        return None
 
 def sanitize_message(message):
     message = message.strip()
     message = message.replace('\n', ' ')
     return message
-
 
 def get_args_parser():
     formatter_class = argparse.ArgumentDefaultsHelpFormatter
