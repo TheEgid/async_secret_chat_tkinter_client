@@ -4,13 +4,14 @@ import os
 import async_timeout
 import socket
 from dotenv import load_dotenv
-from tkinter import *
 from services import AutorizationWindow
 import tkinter.messagebox
-
+from tkinter import *
 import gui
 
 from services import get_args_parser
+from services import sanitize_message
+from services import get_account_hash_and_nickname
 from services import ConnectionError, InvalidTokenError
 
 from log_services import load_log_from_file
@@ -24,7 +25,32 @@ from helpers import authorise
 from helpers import create_handy_nursery
 from helpers import submit_message
 
+		
+async def register(new_name, host, port):
+    hash_and_nickname = None
+    attempts = 5
+    reader, writer = await set_and_check_connection(host=host, port=port, pause_duration=5)
+    try:
+        writer.write(b'\n')
+        await writer.drain()
+        if await reader.readline():
+            _name = str.encode(f'{new_name}\n')
+            writer.write(_name)
+            await writer.drain()
+            await reader.readline()
+            registration_data = await reader.readline()
+            for attempt in range(attempts):
+                hash_and_nickname = \
+                    get_account_hash_and_nickname(registration_data)
+                if hash_and_nickname:
+                    break
+        return hash_and_nickname
+    except UnicodeDecodeError:
+        pass
+    finally:
+        writer.close()
 
+		
 async def save_message():
     while True:
         msg = await _queues["history_queue"].get()
@@ -88,6 +114,18 @@ async def broadcast_chat(host, port):
 
 
 async def start_chat_process(host, port_listener, port_sender, token):
+    if not token:
+		root = Tk()
+        root.title('Введите внизу имя пользователя: ')
+        root.geometry('300x150')
+        user_authorise_window = AutorizationWindow(root)
+        new_name = sanitize_message(user_authorise_window.get_val())
+        print(new_name)
+		
+        root.mainloop()
+		name, token, = await register(new_name, host, port_sender)
+		print(f'registration name is {name}, token is {token}')
+
     authorisation_data = await authorise(host, port_sender, token)
     if not authorisation_data:
         broadcast_logger.info(f'NOT AUTORIZED WITH TOKEN "{token}"')
@@ -139,32 +177,15 @@ async def main():
                   status_updates_queue=asyncio.Queue(),
                   watchdog_queue=asyncio.Queue())
 
-
-    if not os.getenv("TOKEN"):
-
-        root = Tk()
-        root.title('Введите имя пользователя:')
-        root.geometry('300x150')
-        _block = AutorizationWindow(root)
-        z = _block.get_val()
-        print(z)
-
-        root.mainloop()
-
-        exit(1)
-        pass
-
-
-
-    sender = send_message(
-        host=os.getenv("HOST"),
-        port=os.getenv("PORT_SENDER"),
-        token=os.getenv("TOKEN"))
-
     listener = start_chat_process(
         host=os.getenv("HOST"),
         port_listener=os.getenv("PORT_LISTENER"),
         port_sender=os.getenv("PORT_SENDER"),
+        token=os.getenv("TOKEN"))
+		
+    sender = send_message(
+        host=os.getenv("HOST"),
+        port=os.getenv("PORT_SENDER"),
         token=os.getenv("TOKEN"))
 
     ping_ponger = ping_pong_connection(
@@ -180,8 +201,8 @@ async def main():
                 gui.draw(_queues["messages_queue"],
                          _queues["sending_queue"],
                          _queues["status_updates_queue"]))
-            nursery.start_soon(sender)
             nursery.start_soon(listener)
+			nursery.start_soon(sender)
             nursery.start_soon(save_message())
             nursery.start_soon(watch_for_connection(CONNECTION_TIMEOUT_SECONDS))
             nursery.start_soon(ping_ponger)
@@ -200,44 +221,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-
-
-
-# def main():
-#     load_dotenv()
-#     parser = get_args_parser()
-#     args = parser.parse_args()
-#     install_logs_parameters(args.logs)
-#     try:
-#         if args.registration:
-#             coro_register = register(new_name=args.msg,
-#                                      host=args.host,
-#                                      port=args.port_sender)
-#             token, name = asyncio.run(coro_register)
-#             args.token = token
-#             args.user = name
-#             args.registration = False
-#             args.msg = None
-#             print(f'registration name is {name}, token is {token}')
-#
-#         if not args.registration:
-#             while True:
-#                 if not args.msg:
-#                     print('Input your chat message here: ')
-#                 message = input() if not args.msg else args.msg
-#
-#                 if message:
-#                     coro_send_message = submit_message(msg=message,
-#                                                        host=args.host,
-#                                                        port=args.port_sender,
-#                                                        token=args.token)
-#                     asyncio.run(coro_send_message)
-#                 if args.msg:
-#                     break  # only single argument message!
-#
-#     except KeyboardInterrupt:
-#         sys.exit(1)
-#
-#
-# if __name__ == '__main__':
-#     main()
