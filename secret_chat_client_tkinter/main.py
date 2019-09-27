@@ -25,7 +25,28 @@ from helpers import authorise
 from helpers import create_handy_nursery
 from helpers import submit_message
 
-		
+
+# def start_authorisation_window():
+#     root = Tk()
+#     root.title("Minechat welcome!")
+#     root.geometry('700x50')
+#     #breakpoint()
+#     #
+#     lbl = Label(root, text="Введите имя пользователя")
+#     lbl.grid(column=0, row=0)
+#     # lbl.pack()
+#     txt = Entry(root, width=70)
+#     txt.grid(column=1, row=0)
+#     txt.focus()
+#     # txt.pack()
+#     btn = Button(text="Зарегистрировать")
+#     #btn.grid(column=2, row=0)
+#     #btn.bind('<Button-1>', lambda event: get_username(txt.get()))
+#     # btn.pack()
+#    # root.pack_slaves()
+
+
+
 async def register(new_name, host, port):
     hash_and_nickname = None
     attempts = 5
@@ -50,14 +71,14 @@ async def register(new_name, host, port):
     finally:
         writer.close()
 
-		
+
 async def save_message():
     while True:
         msg = await _queues["history_queue"].get()
         await log_to_file(msg)
 
 
-async def send_message(host, port, token):
+async def send_message(reader_writer_for_write):
     _queues["status_updates_queue"].put_nowait(
         gui.SendingConnectionStateChanged.ESTABLISHED)
     while True:
@@ -65,16 +86,16 @@ async def send_message(host, port, token):
         if message:
             _queues["watchdog_queue"].put_nowait("Connection is alive. "
                                                  "Source: Msg sender")
-            await submit_message(host, port, message, token)
+            await submit_message(reader_writer_for_write, message)
 
 
-async def ping_pong_connection(timeout, delay, host, port, token):
+async def ping_pong_connection(timeout, delay, reader_writer_for_write):
     while True:
         try:
             await asyncio.sleep(delay)
             async with async_timeout.timeout(timeout):
                 message = ""
-                await submit_message(host, port, message, token)
+                await submit_message(reader_writer_for_write, message)
             _queues["watchdog_queue"].put_nowait("Connection is alive. "
                                                  "Source: Ping Pong")
         except socket.gaierror:
@@ -91,10 +112,9 @@ async def watch_for_connection(timeout_seconds):
                 raise ConnectionError
 
 
-async def broadcast_chat(host, port):
-    reader, writer = await set_and_check_connection(host=host,
-                                                    port=port,
-                                                    pause_duration=5)
+async def broadcast_chat(reader_writer_for_read, reader_writer_for_write):
+    reader, writer = reader_writer_for_read
+    reader2, writer2 = reader_writer_for_write
     _queues["status_updates_queue"].put_nowait(
         gui.ReadConnectionStateChanged.ESTABLISHED)
     try:
@@ -111,22 +131,13 @@ async def broadcast_chat(host, port):
         sys.exit(1)
     finally:
         writer.close()
+        writer2.close()
 
 
-async def start_chat_process(host, port_listener, port_sender, token):
-    if not token:
-		root = Tk()
-        root.title('Введите внизу имя пользователя: ')
-        root.geometry('300x150')
-        user_authorise_window = AutorizationWindow(root)
-        new_name = sanitize_message(user_authorise_window.get_val())
-        print(new_name)
-		
-        root.mainloop()
-		name, token, = await register(new_name, host, port_sender)
-		print(f'registration name is {name}, token is {token}')
 
-    authorisation_data = await authorise(host, port_sender, token)
+async def start_chat_process(reader_writer_for_read,
+                             reader_writer_for_write, token):
+    authorisation_data = await authorise(reader_writer_for_write, token)
     if not authorisation_data:
         broadcast_logger.info(f'NOT AUTORIZED WITH TOKEN "{token}"')
         raise InvalidTokenError
@@ -137,8 +148,11 @@ async def start_chat_process(host, port_listener, port_sender, token):
     _queues["status_updates_queue"].put_nowait(event)
     _queues["watchdog_queue"].put_nowait(f"Connection is alive. Source: "
                                          f"Authorisation as {nickname}")
-    await broadcast_chat(host, port_listener)
-
+    async with create_handy_nursery() as nursery:
+        nursery.start_soon(broadcast_chat(reader_writer_for_read,
+                                          reader_writer_for_write))
+        nursery.start_soon(send_message(reader_writer_for_write))
+        nursery.start_soon(save_message())
 
     # await broadcast_chat(host, port_listener)
     #token, name = asyncio.run(coro_register)
@@ -177,23 +191,25 @@ async def main():
                   status_updates_queue=asyncio.Queue(),
                   watchdog_queue=asyncio.Queue())
 
-    listener = start_chat_process(
-        host=os.getenv("HOST"),
-        port_listener=os.getenv("PORT_LISTENER"),
-        port_sender=os.getenv("PORT_SENDER"),
-        token=os.getenv("TOKEN"))
-		
-    sender = send_message(
+    reader_writer_for_write = await set_and_check_connection(
         host=os.getenv("HOST"),
         port=os.getenv("PORT_SENDER"),
+        pause_duration=5)
+
+    reader_writer_for_read = await set_and_check_connection(
+        host=os.getenv("HOST"),
+        port=os.getenv("PORT_LISTENER"),
+        pause_duration=5)
+
+    starter = start_chat_process(
+        reader_writer_for_write=reader_writer_for_write,
+        reader_writer_for_read=reader_writer_for_read,
         token=os.getenv("TOKEN"))
 
     ping_ponger = ping_pong_connection(
         timeout=CONNECTION_TIMEOUT_SECONDS,
         delay=PING_PONG_CONNECTION_DELAY_SECONDS,
-        host=os.getenv("HOST"),
-        port=os.getenv("PORT_SENDER"),
-        token=os.getenv("TOKEN"))
+        reader_writer_for_write=reader_writer_for_write)
 
     try:
         async with create_handy_nursery() as nursery:
@@ -201,19 +217,17 @@ async def main():
                 gui.draw(_queues["messages_queue"],
                          _queues["sending_queue"],
                          _queues["status_updates_queue"]))
-            nursery.start_soon(listener)
-			nursery.start_soon(sender)
-            nursery.start_soon(save_message())
+            nursery.start_soon(starter)
             nursery.start_soon(watch_for_connection(CONNECTION_TIMEOUT_SECONDS))
             nursery.start_soon(ping_ponger)
 
     except InvalidTokenError:
         tkinter.messagebox.showerror("Неверный токен",
-                             "Проверьте токен, сервер его не узнал!")
+                                 "Проверьте токен, сервер его не узнал!")
         exit(1)
     except (asyncio.TimeoutError, ConnectionError, ConnectionResetError):
         tkinter.messagebox.showerror("Таймаут соединения",
-                             "Проверьте соединение с сетью!")
+                                 "Проверьте соединение с сетью!")
         exit(1)
     except (gui.TkAppClosed, KeyboardInterrupt):
         exit(0)

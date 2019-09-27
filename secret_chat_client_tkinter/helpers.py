@@ -21,8 +21,8 @@ async def set_and_check_connection(host, port, pause_duration=5):
         except (socket.gaierror, ConnectionResetError, ConnectionError,
                 ConnectionRefusedError, TimeoutError):
             broadcast_logger.info(f'CONNECTION ERROR! '
-                              f'TRY CONNECT {counter} '
-                              f'of {pause_duration}')
+                                  f'TRY CONNECT {counter} '
+                                  f'of {pause_duration}')
             time.sleep(pause_duration)
         if counter >= pause_duration:
             break
@@ -47,33 +47,8 @@ def get_account_hash_and_nickname(registration_data):
         return None
 
 
-async def register(new_name, host, port):
-    hash_and_nickname = None
-    attempts = 5
-    reader, writer = await set_and_check_connection(host=host, port=port)
-    try:
-        writer.write(b'\n')
-        await writer.drain()
-        if await reader.readline():
-            _name = str.encode(f'{new_name}\n')
-            writer.write(_name)
-            await writer.drain()
-            await reader.readline()
-            registration_data = await reader.readline()
-            for attempt in range(attempts):
-                hash_and_nickname = \
-                    get_account_hash_and_nickname(registration_data)
-                if hash_and_nickname:
-                    break
-        return hash_and_nickname
-    except UnicodeDecodeError:
-        pass
-    finally:
-        writer.close()
-
-
-async def authorise(host, port, token):
-    reader, writer = await set_and_check_connection(host=host, port=port)
+async def authorise(reader_writer_for_write, token):
+    reader, writer = reader_writer_for_write
     await reader.readline()
     writer.write(str.encode(f'{token}\n'))
     await writer.drain()
@@ -89,8 +64,8 @@ async def authorise(host, port, token):
         return None
 
 
-async def submit_message(host, port, msg, token):
-    reader, writer, _ = await authorise(host, port, token)
+async def submit_message(reader_writer_for_write, msg):
+    reader, writer = reader_writer_for_write
     try:
         msg = sanitize_message(msg)
         end_of_msg = ''
@@ -100,7 +75,8 @@ async def submit_message(host, port, msg, token):
         if msg:
             broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
     finally:
-        writer.close()
+        pass
+
 
 
 
