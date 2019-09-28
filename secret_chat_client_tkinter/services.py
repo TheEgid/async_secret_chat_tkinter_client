@@ -43,9 +43,9 @@ def get_args_parser():
     parser.add_argument('-Ps', '--port_sender', type=int,
                         default=os.getenv("PORT_SENDER"),
                         help='chat connection sender port')
-    parser.add_argument('-F', '--folder_history', type=str,
-                        default=os.getenv("FOLDER_HISTORY"),
-                        help='filepath of chat history')
+    parser.add_argument('-F', '--folder_logs', type=str,
+                        default=os.getenv("FOLDER_LOGS"),
+                        help='filepath of folder with chat history and logs')
     parser.add_argument('-L', '--logs', action='store_true',
                         default=True,
                         help='set logging')

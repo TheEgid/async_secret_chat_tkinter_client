@@ -61,6 +61,8 @@ async def watch_for_connection(timeout_seconds):
             if isinstance(watcher, str):
                 watchdog_logger.info(watcher)
             if cm.expired:
+                _queues["status_updates_queue"].put_nowait(
+                    gui.ReadConnectionStateChanged.CLOSED)
                 raise ConnectionError
 
 
@@ -117,15 +119,16 @@ async def main():
     load_dotenv()
     parser = get_args_parser()
     args = parser.parse_args()
-    install_logs_parameters('chat_logs', args.logs)
-
-    CONNECTION_TIMEOUT_SECONDS = 15
-    PING_PONG_CONNECTION_DELAY_SECONDS = 70
-
     token = os.getenv("TOKEN")
     host = os.getenv("HOST")
     port_sender = os.getenv("PORT_SENDER")
     port_listener = os.getenv("PORT_LISTENER")
+    logs_folder = os.getenv("FOLDER_LOGS")
+
+    install_logs_parameters(logs_folder, args.logs)
+
+    CONNECTION_TIMEOUT_SECONDS = 15
+    PING_PONG_CONNECTION_DELAY_SECONDS = 70
 
     global _queues
     _queues = dict(messages_queue=asyncio.Queue(),
