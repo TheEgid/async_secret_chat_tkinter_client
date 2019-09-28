@@ -1,73 +1,26 @@
 import asyncio
-import sys
 import os
 import async_timeout
 import socket
 from dotenv import load_dotenv
-from services import AutorizationWindow
 import tkinter.messagebox
 from tkinter import *
 import gui
 
 from services import get_args_parser
-from services import sanitize_message
-from services import get_account_hash_and_nickname
+from services import write_to_file
 from services import ConnectionError, InvalidTokenError
-
+from registration import get_new_username
+from registration import register
 from log_services import load_log_from_file
 from log_services import install_logs_parameters
 from log_services import watchdog_logger
 from log_services import broadcast_logger
 from log_services import history_logger
-
 from helpers import set_and_check_connection
 from helpers import authorise
 from helpers import create_handy_nursery
 from helpers import submit_message
-
-
-# def start_authorisation_window():
-#     root = Tk()
-#     root.title("Minechat welcome!")
-#     root.geometry('700x50')
-#     #breakpoint()
-#     #
-#     lbl = Label(root, text="Введите имя пользователя")
-#     lbl.grid(column=0, row=0)
-#     # lbl.pack()
-#     txt = Entry(root, width=70)
-#     txt.grid(column=1, row=0)
-#     txt.focus()
-#     # txt.pack()
-#     btn = Button(text="Зарегистрировать")
-#     #btn.grid(column=2, row=0)
-#     #btn.bind('<Button-1>', lambda event: get_username(txt.get()))
-#     # btn.pack()
-#    # root.pack_slaves()
-
-
-async def register(stream_for_write, new_name, attempts=5):
-    reader, writer = stream_for_write
-    hash_and_nickname = None
-    try:
-        writer.write(b'\n')
-        await writer.drain()
-        if await reader.readline():
-            _name = str.encode(f'{new_name}\n')
-            writer.write(_name)
-            await writer.drain()
-            await reader.readline()
-            registration_data = await reader.readline()
-            for attempt in range(attempts):
-                hash_and_nickname = \
-                    get_account_hash_and_nickname(registration_data)
-                if hash_and_nickname:
-                    break
-        return hash_and_nickname
-    except UnicodeDecodeError:
-        pass
-    finally:
-        writer.close()
 
 
 async def save_history():
@@ -84,7 +37,7 @@ async def send_message(stream_for_write):
         message = await _queues["sending_queue"].get()
         if message:
             _queues["watchdog_queue"].put_nowait("Connection is alive. "
-                                                 "Source: Msg sender")
+                                                 "Source: Message sender")
             await submit_message(stream_for_write, message)
 
 
@@ -151,7 +104,8 @@ async def start_chat_process(stream_for_read, stream_for_write, token):
         nursery.start_soon(save_history())
 
 
-async def get_streams(host, port_sender, port_listener, pause_duration=5):
+async def get_connection_streams(host, port_sender, port_listener,
+                                 pause_duration=5):
     stream_for_write = await set_and_check_connection(host, port_sender,
                                                       pause_duration)
     stream_for_read = await set_and_check_connection(host, port_listener,
@@ -180,14 +134,21 @@ async def main():
                    status_updates_queue=asyncio.Queue(),
                    watchdog_queue=asyncio.Queue())
 
-    stream_for_read, stream_for_write = await get_streams(host, port_sender,
-                                                           port_listener)
+    stream_for_read, stream_for_write = await \
+        get_connection_streams(host, port_sender, port_listener)
+
     if not token:
-        new_name = "Boris"
-        token, name = await register(stream_for_write, new_name)
-        broadcast_logger.info(f'REGISTER AS {name} WITH TOKEN "{token}"')
-        stream_for_read, stream_for_write = await get_streams(host, port_sender,
-                                                              port_listener)
+        new_username = get_new_username()
+        if new_username:
+            token, name = await register(stream_for_write, new_username)
+            await write_to_file(f"\nTOKEN='{token}'", filepath='.env')
+            _queues["watchdog_queue"].put_nowait(
+                f"Connection is alive. Source: Registration as {name}")
+            broadcast_logger.info(f'REGISTER AS "{name}" WITH TOKEN "{token}"')
+
+            stream_for_read, stream_for_write = await \
+                get_connection_streams(host, port_sender, port_listener)
+
     starter = start_chat_process(
         stream_for_write=stream_for_write,
         stream_for_read=stream_for_read,
@@ -222,3 +183,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+

@@ -1,7 +1,8 @@
 import os
+import aiofiles
 import argparse
 import json
-from tkinter import *
+
 
 class ConnectionError(Exception):
     pass
@@ -11,33 +12,9 @@ class InvalidTokenError(Exception):
     pass
 
 
-class AutorizationWindow:
-    def __init__(self, master):
-        name = StringVar()
-        self.e = Entry(master, width=80, textvariable=name)
-        self.b = Button(master, text="Зарегистрировать пользователя в чате")
-        self.l = Label(master, bg='white', fg='black', width=80)
-        self.e.pack()
-        self.b.pack()
-        self.l.pack()
-
-    def get_val(self):
-        self.b.bind()
-        print(self.e.get())
-        return self.e.get()
-
-    # def setFunc(self, func):
-    #     self.b['command'] = eval('self.' + func)
-    # def strToSortlist(self):
-    #     s = self.e.get()
-    #     s = s.split()
-    #     s.sort()
-    #     self.l['text'] = ' '.join(s)
-    # def strReverse(self):
-    #     s = self.e.get()
-    #     s = s.split()
-    #     s.reverse()
-    #     self.l['text'] = ' '.join(s)
+async def write_to_file(data, filepath):
+    async with aiofiles.open(filepath, 'a', encoding='utf8') as logfile:
+        await logfile.write(data)
 
     
 def get_account_hash_and_nickname(registration_data):

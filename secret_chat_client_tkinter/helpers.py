@@ -73,4 +73,3 @@ async def submit_message(stream_for_write, msg):
     await writer.drain()
     if msg:
         broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
-
