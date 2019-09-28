@@ -15,10 +15,10 @@ from services import get_account_hash_and_nickname
 from services import ConnectionError, InvalidTokenError
 
 from log_services import load_log_from_file
-from log_services import log_to_file
 from log_services import install_logs_parameters
 from log_services import watchdog_logger
 from log_services import broadcast_logger
+from log_services import history_logger
 
 from helpers import set_and_check_connection
 from helpers import authorise
@@ -46,11 +46,9 @@ from helpers import submit_message
 #    # root.pack_slaves()
 
 
-
-async def register(new_name, host, port):
+async def register(stream_for_write, new_name, attempts=5):
+    reader, writer = stream_for_write
     hash_and_nickname = None
-    attempts = 5
-    reader, writer = await set_and_check_connection(host=host, port=port, pause_duration=5)
     try:
         writer.write(b'\n')
         await writer.drain()
@@ -72,13 +70,14 @@ async def register(new_name, host, port):
         writer.close()
 
 
-async def save_message():
+async def save_history():
     while True:
-        msg = await _queues["history_queue"].get()
-        await log_to_file(msg)
+        message = await _queues["history_queue"].get()
+        if isinstance(message, str):
+            history_logger.info(message)
 
 
-async def send_message(reader_writer_for_write):
+async def send_message(stream_for_write):
     _queues["status_updates_queue"].put_nowait(
         gui.SendingConnectionStateChanged.ESTABLISHED)
     while True:
@@ -86,16 +85,16 @@ async def send_message(reader_writer_for_write):
         if message:
             _queues["watchdog_queue"].put_nowait("Connection is alive. "
                                                  "Source: Msg sender")
-            await submit_message(reader_writer_for_write, message)
+            await submit_message(stream_for_write, message)
 
 
-async def ping_pong_connection(timeout, delay, reader_writer_for_write):
+async def ping_pong_connection(timeout, delay, stream_for_write):
     while True:
         try:
             await asyncio.sleep(delay)
             async with async_timeout.timeout(timeout):
                 message = ""
-                await submit_message(reader_writer_for_write, message)
+                await submit_message(stream_for_write, message)
             _queues["watchdog_queue"].put_nowait("Connection is alive. "
                                                  "Source: Ping Pong")
         except socket.gaierror:
@@ -112,9 +111,9 @@ async def watch_for_connection(timeout_seconds):
                 raise ConnectionError
 
 
-async def broadcast_chat(reader_writer_for_read, reader_writer_for_write):
-    reader, writer = reader_writer_for_read
-    reader2, writer2 = reader_writer_for_write
+async def broadcast_chat(stream_for_read, stream_for_write):
+    reader, writer = stream_for_read
+    reader2, writer2 = stream_for_write
     _queues["status_updates_queue"].put_nowait(
         gui.ReadConnectionStateChanged.ESTABLISHED)
     try:
@@ -134,45 +133,30 @@ async def broadcast_chat(reader_writer_for_read, reader_writer_for_write):
         writer2.close()
 
 
-
-async def start_chat_process(reader_writer_for_read,
-                             reader_writer_for_write, token):
-    authorisation_data = await authorise(reader_writer_for_write, token)
+async def start_chat_process(stream_for_read, stream_for_write, token):
+    authorisation_data = await authorise(stream_for_write, token)
     if not authorisation_data:
         broadcast_logger.info(f'NOT AUTORIZED WITH TOKEN "{token}"')
         raise InvalidTokenError
     _, _, nickname = authorisation_data
     event = gui.NicknameReceived(nickname)
-    for _history in await load_log_from_file():
+    for _history in await load_log_from_file('chat_logs'):
         _queues["messages_queue"].put_nowait(_history.strip())
     _queues["status_updates_queue"].put_nowait(event)
     _queues["watchdog_queue"].put_nowait(f"Connection is alive. Source: "
                                          f"Authorisation as {nickname}")
     async with create_handy_nursery() as nursery:
-        nursery.start_soon(broadcast_chat(reader_writer_for_read,
-                                          reader_writer_for_write))
-        nursery.start_soon(send_message(reader_writer_for_write))
-        nursery.start_soon(save_message())
+        nursery.start_soon(broadcast_chat(stream_for_read,stream_for_write))
+        nursery.start_soon(send_message(stream_for_write))
+        nursery.start_soon(save_history())
 
-    # await broadcast_chat(host, port_listener)
-    #token, name = asyncio.run(coro_register)
-    #print(f'registration name is {name}, token is {token}')
 
-        # if not args.registration:
-        #     while True:
-        #         if not args.msg:
-        #             print('Input your chat message here: ')
-        #         message = input() if not args.msg else args.msg
-        #
-        #         if message:
-        #             coro_send_message = submit_message(msg=message,
-        #                                                host=args.host,
-        #                                                port=args.port_sender,
-        #                                                token=args.token)
-        #
-        #             asyncio.run(coro_send_message)
-        #         if args.msg:
-        #             break  # only single argument message!
+async def get_streams(host, port_sender, port_listener, pause_duration=5):
+    stream_for_write = await set_and_check_connection(host, port_sender,
+                                                      pause_duration)
+    stream_for_read = await set_and_check_connection(host, port_listener,
+                                                     pause_duration)
+    return stream_for_read, stream_for_write
 
 
 async def main():
@@ -184,32 +168,35 @@ async def main():
     CONNECTION_TIMEOUT_SECONDS = 15
     PING_PONG_CONNECTION_DELAY_SECONDS = 70
 
+    token = os.getenv("TOKEN")
+    host = os.getenv("HOST")
+    port_sender = os.getenv("PORT_SENDER")
+    port_listener = os.getenv("PORT_LISTENER")
+
     global _queues
     _queues = dict(messages_queue=asyncio.Queue(),
-                  sending_queue=asyncio.Queue(),
-                  history_queue=asyncio.Queue(),
-                  status_updates_queue=asyncio.Queue(),
-                  watchdog_queue=asyncio.Queue())
+                   sending_queue=asyncio.Queue(),
+                   history_queue=asyncio.Queue(),
+                   status_updates_queue=asyncio.Queue(),
+                   watchdog_queue=asyncio.Queue())
 
-    reader_writer_for_write = await set_and_check_connection(
-        host=os.getenv("HOST"),
-        port=os.getenv("PORT_SENDER"),
-        pause_duration=5)
-
-    reader_writer_for_read = await set_and_check_connection(
-        host=os.getenv("HOST"),
-        port=os.getenv("PORT_LISTENER"),
-        pause_duration=5)
-
+    stream_for_read, stream_for_write = await get_streams(host, port_sender,
+                                                           port_listener)
+    if not token:
+        new_name = "Boris"
+        token, name = await register(stream_for_write, new_name)
+        broadcast_logger.info(f'REGISTER AS {name} WITH TOKEN "{token}"')
+        stream_for_read, stream_for_write = await get_streams(host, port_sender,
+                                                              port_listener)
     starter = start_chat_process(
-        reader_writer_for_write=reader_writer_for_write,
-        reader_writer_for_read=reader_writer_for_read,
-        token=os.getenv("TOKEN"))
+        stream_for_write=stream_for_write,
+        stream_for_read=stream_for_read,
+        token=token)
 
     ping_ponger = ping_pong_connection(
         timeout=CONNECTION_TIMEOUT_SECONDS,
         delay=PING_PONG_CONNECTION_DELAY_SECONDS,
-        reader_writer_for_write=reader_writer_for_write)
+        stream_for_write=stream_for_write)
 
     try:
         async with create_handy_nursery() as nursery:
@@ -223,11 +210,11 @@ async def main():
 
     except InvalidTokenError:
         tkinter.messagebox.showerror("Неверный токен",
-                                 "Проверьте токен, сервер его не узнал!")
+                                     "Проверьте токен, сервер его не узнал!")
         exit(1)
     except (asyncio.TimeoutError, ConnectionError, ConnectionResetError):
         tkinter.messagebox.showerror("Таймаут соединения",
-                                 "Проверьте соединение с сетью!")
+                                     "Проверьте соединение с сетью!")
         exit(1)
     except (gui.TkAppClosed, KeyboardInterrupt):
         exit(0)

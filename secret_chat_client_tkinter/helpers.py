@@ -47,8 +47,8 @@ def get_account_hash_and_nickname(registration_data):
         return None
 
 
-async def authorise(reader_writer_for_write, token):
-    reader, writer = reader_writer_for_write
+async def authorise(stream_for_write, token):
+    reader, writer = stream_for_write
     await reader.readline()
     writer.write(str.encode(f'{token}\n'))
     await writer.drain()
@@ -64,57 +64,13 @@ async def authorise(reader_writer_for_write, token):
         return None
 
 
-async def submit_message(reader_writer_for_write, msg):
-    reader, writer = reader_writer_for_write
-    try:
-        msg = sanitize_message(msg)
-        end_of_msg = ''
-        writer.write(str.encode(f'{msg}\n'))
-        writer.write(str.encode(f'{end_of_msg}\n'))
-        await writer.drain()
-        if msg:
-            broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
-    finally:
-        pass
+async def submit_message(stream_for_write, msg):
+    reader, writer = stream_for_write
+    msg = sanitize_message(msg)
+    end_of_msg = ''
+    writer.write(str.encode(f'{msg}\n'))
+    writer.write(str.encode(f'{end_of_msg}\n'))
+    await writer.drain()
+    if msg:
+        broadcast_logger.info(f'MESSAGE SENDED "{msg}"')
 
-
-
-
-# def main():
-#     load_dotenv()
-#     parser = get_args_parser()
-#     args = parser.parse_args()
-#     install_logs_parameters(args.logs)
-#     try:
-#         if args.registration:
-#             coro_register = register(new_name=args.msg,
-#                                      host=args.host,
-#                                      port=args.port_sender)
-#             token, name = asyncio.run(coro_register)
-#             args.token = token
-#             args.user = name
-#             args.registration = False
-#             args.msg = None
-#             print(f'registration name is {name}, token is {token}')
-#
-#         if not args.registration:
-#             while True:
-#                 if not args.msg:
-#                     print('Input your chat message here: ')
-#                 message = input() if not args.msg else args.msg
-#
-#                 if message:
-#                     coro_send_message = submit_message(msg=message,
-#                                                        host=args.host,
-#                                                        port=args.port_sender,
-#                                                        token=args.token)
-#                     asyncio.run(coro_send_message)
-#                 if args.msg:
-#                     break  # only single argument message!
-#
-#     except KeyboardInterrupt:
-#         sys.exit(1)
-#
-#
-# if __name__ == '__main__':
-#     main()
