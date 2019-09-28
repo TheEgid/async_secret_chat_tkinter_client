@@ -1,4 +1,4 @@
-# chat_tkinter
+# async_secret_chat_tkinter_client
 
 Проект представляет собой учебный Async чат-клиент c графическим оконным интефейсом.
  
@@ -35,12 +35,18 @@ usage: main.py [-h] [-H HOST] [-Pl PORT_LISTENER] [-Ps PORT_SENDER]
                [-F FOLDER_LOGS] [-L]
 
 optional arguments:
-  -h, --help                                        **_show this help message and exit_**
-  -H HOST, --host HOST                              **_chat connection hostname (default: HOST)_**
-  -Pl PORT_LISTENER, --port_listener PORT_LISTENER  **_chat connection listener port (default: PORT_LISTENER)_**
-  -Ps PORT_SENDER, --port_sender PORT_SENDER        **_chat connection sender port (default: PORT_SENDER)_**
-  -F FOLDER_LOGS, --folder_logs FOLDER_LOGS         **_filepath of folder with chat history and logs (default: chat_logs)_**
-  -L, --logs                                        **_set logging (default: True)_**
+
+-h, --help                                        **_show this help message and exit_**
+
+-H HOST, --host HOST                              **_chat connection hostname (default: HOST)_**
+
+-Pl PORT_LISTENER, --port_listener PORT_LISTENER  **_chat connection listener port (default: PORT_LISTENER)_**
+
+-Ps PORT_SENDER, --port_sender PORT_SENDER        **_chat connection sender port (default: PORT_SENDER)_**
+
+-F FOLDER_LOGS, --folder_logs FOLDER_LOGS         **_filepath of folder with chat history and logs (default: chat_logs)_**
+
+-L, --logs                                        **_set logging (default: True)_**
 
 
 ![chat](https://www.radikal.kz/images/2019/09/29/VOT.jpg)
