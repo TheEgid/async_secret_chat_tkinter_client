@@ -24,7 +24,7 @@ python main.py
 ```
 При первом запуске будет запущено диалоговое окно регистрации.
 
-![reg](https://www.radikal.kz/images/2019/09/29/lukassss.jpg)
+![reg](https://www.radikal.kz/images/2019/10/12/number1.jpg)
 
 Полученный токен автоматически будет сохранен в .env файл для дальнейшей авторизации. 
  
@@ -49,7 +49,7 @@ optional arguments:
 -L, --logs                                        **_set logging (default: True)_**
 
 
-![chat](https://www.radikal.kz/images/2019/09/29/VOT.jpg)
+![chat](https://www.radikal.kz/images/2019/10/12/number2.jpg)
 
 ### Особенности
 Программа сохраняет логи работы и историю переписки в чате. Пр повторном запуске отображается история переписки в чате.
