@@ -9,7 +9,7 @@ import gui
 
 from services import get_args_parser
 from services import write_to_file
-from services import ConnectionError, InvalidTokenError
+from services import ConnectionError, InvalidTokenError, CancelledError
 from registration import get_new_username
 from registration import register
 from log_services import load_log_from_file
@@ -17,7 +17,6 @@ from log_services import install_logs_parameters
 from log_services import watchdog_logger
 from log_services import broadcast_logger
 from log_services import history_logger
-from helpers import set_and_check_connection
 from helpers import authorise
 from helpers import create_handy_nursery
 from helpers import submit_message
@@ -106,16 +105,79 @@ async def start_chat_process(stream_for_read, stream_for_write, token):
         nursery.start_soon(save_history())
 
 
-
-
 async def get_connection_streams(host, port_sender, port_listener,
-                                 pause_duration=5):
-    stream_for_write = await set_and_check_connection(host, port_sender,
-                                                      pause_duration)
-    stream_for_read = await set_and_check_connection(host, port_listener,
-                                                     pause_duration)
-    return stream_for_read, stream_for_write
+                                 connection_timeout_seconds, try_connects=5):
+    for counter in range(0, try_connects):
+        try:
+            stream_for_write = await asyncio.open_connection(host=host,
+                                                         port=port_sender)
+            stream_for_read = await asyncio.open_connection(host=host,
+                                                        port=port_listener)
+            if stream_for_read and stream_for_write:
+                broadcast_logger.info('CONNECTION SUCCESSFUL')
+            return stream_for_read, stream_for_write
+        except (socket.gaierror, ConnectionResetError, ConnectionError,
+                ConnectionRefusedError, TimeoutError):
+            broadcast_logger.info(f'CONNECTION ERROR! '
+                                  f'TRY CONNECT {counter+1} '
+                                  f'OF {try_connects}')
+            _queues["status_updates_queue"].put_nowait(
+                gui.ReadConnectionStateChanged.INITIATED)
+            _queues["status_updates_queue"].put_nowait(
+                gui.SendingConnectionStateChanged.INITIATED)
+            await asyncio.sleep(connection_timeout_seconds)
 
+            if counter == try_connects-1:
+                raise CancelledError
+
+
+async def handle_connection(host, port_sender, port_listener, token):
+    connection_timeout_seconds = 15
+    ping_pong_connection_delay_seconds = 70
+
+    async with create_handy_nursery() as nursery:
+        if not token:
+            _, stream_for_write = await \
+                get_connection_streams(host, port_sender, port_listener,
+                                       connection_timeout_seconds)
+            new_username = get_new_username()
+            if new_username:
+                token, name = await register(stream_for_write, new_username)
+                await write_to_file(f"\nTOKEN='{token}'", filepath='.env')
+                _queues["watchdog_queue"].put_nowait(
+                    f"Connection is alive. Source: Registration as {name}")
+                broadcast_logger.info(
+                    f'REGISTER AS "{name}" WITH TOKEN "{token}"')
+        try:
+            nursery.start_soon(
+                gui.draw(_queues["messages_queue"],
+                         _queues["sending_queue"],
+                         _queues["status_updates_queue"]))
+
+            stream_for_read, stream_for_write = await \
+                get_connection_streams(host, port_sender, port_listener,
+                                       connection_timeout_seconds)
+
+            nursery.start_soon(
+                ping_pong_connection(
+                timeout=connection_timeout_seconds,
+                delay=ping_pong_connection_delay_seconds,
+                stream_for_write=stream_for_write))
+
+            nursery.start_soon(
+                start_chat_process(
+                stream_for_write=stream_for_write,
+                stream_for_read=stream_for_read,
+                token=token))
+
+            nursery.start_soon(watch_for_connection(connection_timeout_seconds))
+
+        except InvalidTokenError:
+            tkinter.messagebox.showerror("Неверный токен",
+                                         "Проверьте токен, сервер его не узнал!")
+            exit(1)
+        except (asyncio.TimeoutError, ConnectionError, ConnectionResetError):
+            raise
 
 async def main():
     load_dotenv()
@@ -129,56 +191,17 @@ async def main():
 
     install_logs_parameters(logs_folder, args.logs)
 
-    connection_timeout_seconds = 15
-    ping_pong_connection_delay_seconds = 70
-
     global _queues
     _queues = dict(messages_queue=asyncio.Queue(),
                    sending_queue=asyncio.Queue(),
                    history_queue=asyncio.Queue(),
                    status_updates_queue=asyncio.Queue(),
                    watchdog_queue=asyncio.Queue())
-
-    stream_for_read, stream_for_write = await \
-        get_connection_streams(host, port_sender, port_listener)
-
-    if not token:
-        new_username = get_new_username()
-        if new_username:
-            token, name = await register(stream_for_write, new_username)
-            await write_to_file(f"\nTOKEN='{token}'", filepath='.env')
-            _queues["watchdog_queue"].put_nowait(
-                f"Connection is alive. Source: Registration as {name}")
-            broadcast_logger.info(f'REGISTER AS "{name}" WITH TOKEN "{token}"')
-
-            stream_for_read, stream_for_write = await \
-                get_connection_streams(host, port_sender, port_listener)
-
-    starter = start_chat_process(
-        stream_for_write=stream_for_write,
-        stream_for_read=stream_for_read,
-        token=token)
-
-    ping_ponger = ping_pong_connection(
-        timeout=connection_timeout_seconds,
-        delay=ping_pong_connection_delay_seconds,
-        stream_for_write=stream_for_write)
-
     try:
-        async with create_handy_nursery() as nursery:
-            nursery.start_soon(
-                gui.draw(_queues["messages_queue"],
-                         _queues["sending_queue"],
-                         _queues["status_updates_queue"]))
-            nursery.start_soon(starter)
-            nursery.start_soon(watch_for_connection(connection_timeout_seconds))
-            nursery.start_soon(ping_ponger)
+        await handle_connection(host, port_sender, port_listener, token)
 
-    except InvalidTokenError:
-        tkinter.messagebox.showerror("Неверный токен",
-                                     "Проверьте токен, сервер его не узнал!")
-        exit(1)
-    except (asyncio.TimeoutError, ConnectionError, ConnectionResetError):
+    except (CancelledError, socket.gaierror, ConnectionResetError,
+            ConnectionError, ConnectionRefusedError, TimeoutError):
         tkinter.messagebox.showerror("Таймаут соединения",
                                      "Проверьте соединение с сетью!")
         exit(1)
@@ -188,4 +211,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-

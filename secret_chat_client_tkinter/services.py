@@ -4,6 +4,10 @@ import argparse
 import json
 
 
+class CancelledError(Exception):
+    pass
+
+
 class ConnectionError(Exception):
     pass
 
