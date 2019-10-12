@@ -106,6 +106,8 @@ async def start_chat_process(stream_for_read, stream_for_write, token):
         nursery.start_soon(save_history())
 
 
+
+
 async def get_connection_streams(host, port_sender, port_listener,
                                  pause_duration=5):
     stream_for_write = await set_and_check_connection(host, port_sender,
@@ -127,8 +129,8 @@ async def main():
 
     install_logs_parameters(logs_folder, args.logs)
 
-    CONNECTION_TIMEOUT_SECONDS = 15
-    PING_PONG_CONNECTION_DELAY_SECONDS = 70
+    connection_timeout_seconds = 15
+    ping_pong_connection_delay_seconds = 70
 
     global _queues
     _queues = dict(messages_queue=asyncio.Queue(),
@@ -158,8 +160,8 @@ async def main():
         token=token)
 
     ping_ponger = ping_pong_connection(
-        timeout=CONNECTION_TIMEOUT_SECONDS,
-        delay=PING_PONG_CONNECTION_DELAY_SECONDS,
+        timeout=connection_timeout_seconds,
+        delay=ping_pong_connection_delay_seconds,
         stream_for_write=stream_for_write)
 
     try:
@@ -169,7 +171,7 @@ async def main():
                          _queues["sending_queue"],
                          _queues["status_updates_queue"]))
             nursery.start_soon(starter)
-            nursery.start_soon(watch_for_connection(CONNECTION_TIMEOUT_SECONDS))
+            nursery.start_soon(watch_for_connection(connection_timeout_seconds))
             nursery.start_soon(ping_ponger)
 
     except InvalidTokenError:

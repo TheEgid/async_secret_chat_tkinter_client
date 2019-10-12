@@ -1,6 +1,7 @@
 import tkinter as tk
 import asyncio
 from tkinter.scrolledtext import ScrolledText
+from helpers import create_handy_nursery
 from enum import Enum
 
 
@@ -55,11 +56,14 @@ async def update_conversation_history(panel, messages_queue):
         if panel.index('end-1c') != '1.0':
             panel.insert('end', '\n')
         panel.insert('end', msg)
-        # TODO сделать промотку умной, чтобы не мешала просматривать историю сообщений
-        # ScrolledText.frame
-        # ScrolledText.vbar
-        panel.yview(tk.END)
+
         panel['state'] = 'disabled'
+
+        width, height = panel.yview()
+        if round(height, 3) == 0.999:
+            panel.yview(tk.END)
+        else:
+            panel.yview(tk.CURRENT)
 
 
 async def update_status_panel(status_labels, status_updates_queue):
@@ -88,13 +92,16 @@ def create_status_panel(root_frame):
     connections_frame = tk.Frame(status_frame)
     connections_frame.pack(side="left")
 
-    nickname_label = tk.Label(connections_frame, height=1, fg='grey', font='arial 10', anchor='w')
+    nickname_label = tk.Label(connections_frame, height=1,
+                              fg='grey', font='arial 10', anchor='w')
     nickname_label.pack(side="top", fill=tk.X)
 
-    status_read_label = tk.Label(connections_frame, height=1, fg='grey', font='arial 10', anchor='w')
+    status_read_label = tk.Label(connections_frame, height=1,
+                                 fg='grey', font='arial 10', anchor='w')
     status_read_label.pack(side="top", fill=tk.X)
 
-    status_write_label = tk.Label(connections_frame, height=1, fg='grey', font='arial 10', anchor='w')
+    status_write_label = tk.Label(connections_frame, height=1,
+                                  fg='grey', font='arial 10', anchor='w')
     status_write_label.pack(side="top", fill=tk.X)
 
     return (nickname_label, status_read_label, status_write_label)
@@ -116,19 +123,22 @@ async def draw(messages_queue, sending_queue, status_updates_queue):
     input_field = tk.Entry(input_frame)
     input_field.pack(side="left", fill=tk.X, expand=True)
 
-    input_field.bind("<Return>", lambda event: process_new_message(input_field, sending_queue))
+    input_field.bind("<Return>", lambda event: process_new_message(
+        input_field,
+        sending_queue))
 
     send_button = tk.Button(input_frame)
     send_button["text"] = "Отправить"
-    send_button["command"] = lambda: process_new_message(input_field, sending_queue)
+    send_button["command"] = lambda: process_new_message(input_field,
+                                                         sending_queue)
     send_button.pack(side="left")
 
     conversation_panel = ScrolledText(root_frame, wrap='none')
     conversation_panel.pack(side="top", fill="both", expand=True)
 
-    await asyncio.gather(
-        update_tk(root_frame),
-        update_conversation_history(conversation_panel, messages_queue),
-        update_status_panel(status_labels, status_updates_queue)
-    )
-
+    async with create_handy_nursery() as nursery:
+        nursery.start_soon(update_tk(root_frame))
+        nursery.start_soon(update_conversation_history(conversation_panel,
+                                                       messages_queue))
+        nursery.start_soon(update_status_panel(status_labels,
+                                               status_updates_queue))
