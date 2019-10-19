@@ -194,20 +194,21 @@ async def main():
                         history_queue=asyncio.Queue(),
                         status_updates_queue=asyncio.Queue(),
                         watchdog_queue=asyncio.Queue())
+    while True:
+        try:
+            await handle_connection(host, port_sender, port_listener, token)
 
-    try:
-        await handle_connection(host, port_sender, port_listener, token)
-    except (CancelledError, ConnectionError, socket.gaierror,
-            ConnectionRefusedError, TimeoutError, ConnectionResetError):
-        tkinter.messagebox.showerror(
-            "Таймаут соединения. ", "Проверьте соединение с сетью!")
-        exit(1)
-    except InvalidTokenError:
-        tkinter.messagebox.showerror(
-            "Неверный токен ", "Проверьте токен, сервер его не узнал!")
-        exit(1)
-    except (gui.TkAppClosed, KeyboardInterrupt):
-        exit(0)
+        except InvalidTokenError:
+            tkinter.messagebox.showerror(
+                "Неверный токен ", "Проверьте токен, сервер его не узнал!")
+            exit(1)
+
+        except (gui.TkAppClosed, KeyboardInterrupt):
+            exit(0)
+
+        except (CancelledError, ConnectionError, socket.gaierror,
+                ConnectionRefusedError, TimeoutError, ConnectionResetError):
+            continue
 
 
 if __name__ == '__main__':

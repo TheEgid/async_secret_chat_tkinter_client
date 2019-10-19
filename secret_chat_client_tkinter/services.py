@@ -4,6 +4,9 @@ import argparse
 import json
 
 
+tkinter_window_is_open = False
+
+
 class CancelledError(Exception):
     pass
 
