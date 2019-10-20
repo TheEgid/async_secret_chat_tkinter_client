@@ -19,6 +19,10 @@ class InvalidTokenError(Exception):
     pass
 
 
+class MaximumRetryConnectionError(Exception):
+    pass
+
+
 async def write_to_file(data, filepath):
     async with aiofiles.open(filepath, 'a', encoding='utf8') as logfile:
         await logfile.write(data)

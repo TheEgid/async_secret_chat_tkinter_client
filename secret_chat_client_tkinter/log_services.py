@@ -41,7 +41,6 @@ def install_logs_parameters(log_path, logs=False):
         watchdog_logger.addHandler(watchdog_file_handler)
 
 
-
 async def load_log_from_file(log_path, log_filename='history.txt'):
     log_file = os.path.join(log_path, log_filename)
     log = []

@@ -9,7 +9,8 @@ import gui
 
 from services import get_args_parser
 from services import write_to_file
-from services import ConnectionError, InvalidTokenError, CancelledError
+from services import ConnectionError, InvalidTokenError, CancelledError, \
+    MaximumRetryConnectionError
 from registration import get_new_username
 from registration import register
 from log_services import load_log_from_file
@@ -58,8 +59,6 @@ async def watch_for_connection(timeout_seconds):
             if isinstance(watcher, str):
                 watchdog_logger.info(watcher)
             if cm.expired:
-                async_queues["status_updates_queue"].put_nowait(
-                    gui.ReadConnectionStateChanged.CLOSED)
                 raise ConnectionError
 
 
@@ -78,6 +77,10 @@ async def broadcast_chat(stream_for_read, stream_for_write):
     except KeyboardInterrupt:
         sys.exit(1)
     finally:
+        async_queues["status_updates_queue"].put_nowait(
+            gui.SendingConnectionStateChanged.CLOSED)
+        async_queues["status_updates_queue"].put_nowait(
+            gui.ReadConnectionStateChanged.CLOSED)
         writer.close()
         writer2.close()
 
@@ -102,7 +105,7 @@ async def start_chat_process(stream_for_read, stream_for_write, token):
 
 async def get_connection_streams(host, port_sender, port_listener,
                                  connection_timeout_seconds,
-                                 connection_max_retry=5):
+                                 connection_max_retry):
     for counter in range(1, connection_max_retry+1):
         try:
             stream_for_write = await asyncio.open_connection(host=host,
@@ -117,25 +120,27 @@ async def get_connection_streams(host, port_sender, port_listener,
             broadcast_logger.info(f'CONNECTION ERROR! '
                                   f'TRY CONNECT {counter} '
                                   f'OF {connection_max_retry}')
-            async_queues["status_updates_queue"].put_nowait(
-                gui.ReadConnectionStateChanged.INITIATED)
-            async_queues["status_updates_queue"].put_nowait(
-                gui.SendingConnectionStateChanged.INITIATED)
-            await asyncio.sleep(connection_timeout_seconds)
 
+            await asyncio.sleep(connection_timeout_seconds)
             if counter == connection_max_retry:
-                raise CancelledError
+                raise MaximumRetryConnectionError
 
 
 async def handle_connection(host, port_sender, port_listener, token):
     connection_timeout_seconds = 15
+    connection_max_retry = 1000
     ping_pong_connection_delay_seconds = 70
 
     async with create_handy_nursery() as nursery:
+        async_queues["status_updates_queue"].put_nowait(
+            gui.ReadConnectionStateChanged.INITIATED)
+        async_queues["status_updates_queue"].put_nowait(
+            gui.SendingConnectionStateChanged.INITIATED)
         if not token:
             _, stream_for_write = await \
                 get_connection_streams(host, port_sender, port_listener,
-                                       connection_timeout_seconds)
+                                       connection_timeout_seconds,
+                                       connection_max_retry)
             new_username = get_new_username()
             if new_username:
                 token, name = await register(stream_for_write, new_username)
@@ -152,8 +157,8 @@ async def handle_connection(host, port_sender, port_listener, token):
 
         stream_for_read, stream_for_write = await \
             get_connection_streams(host, port_sender, port_listener,
-                                   connection_timeout_seconds)
-
+                                   connection_timeout_seconds,
+                                   connection_max_retry)
         nursery.start_soon(
             ping_pong_connection(
                 timeout=connection_timeout_seconds,
@@ -203,11 +208,16 @@ async def main():
                 "Неверный токен ", "Проверьте токен, сервер его не узнал!")
             exit(1)
 
+        except MaximumRetryConnectionError:
+            tkinter.messagebox.showerror("Максимум попыток подключения. ",
+                                         "Проверьте соединение с сетью!")
+            exit(1)
+
         except (gui.TkAppClosed, KeyboardInterrupt):
             exit(0)
 
-        except (CancelledError, ConnectionError, socket.gaierror,
-                ConnectionRefusedError, TimeoutError, ConnectionResetError):
+        except (socket.gaierror, ConnectionRefusedError, TimeoutError,
+                ConnectionResetError, ConnectionResetError):
             continue
 
 
